@@ -3,7 +3,8 @@ title: "NYPD Shootings by Age"
 author: "A. Deeley"
 date: "2026-09-22"
 output:
-  github_document
+   pdf_document: default
+  html_document: default
 ---
 
 ```{r setup, include=FALSE}
