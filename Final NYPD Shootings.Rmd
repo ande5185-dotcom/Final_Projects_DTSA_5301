@@ -1,0 +1,433 @@
+---
+title: "NYPD Shootings by Age"
+author: "A. Deeley"
+date: "2026-09-22"
+output:
+  github_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(dplyr)
+library(stringr)
+library(tidymodels)
+library(hms)
+library(ggplot2)
+```
+
+# Purpose
+
+This report will take data from the Archived NYPD shooting data which can be found [here](https://catalog.data.gov/dataset/archived_nypd-shooting-incident-data-historic?from_hint=eyJxIjoiTllQRCBTaG9vdGluZyBJbmNpZGVudCBEYXRhIiwic29ydCI6InJlbGV2YW5jZSJ9). This data contains information on date, time, location, boro, and perpetrator and victim demographics. We will focus on the age of and perpetrators.
+
+We aim to answer the question: 
+
+How does the amount of shootings reported by the New York Police Department change over time and in each age group? 
+
+## Import Data
+
+I begin by reading in the data from [Data.gov](https://catalog.data.gov/dataset/archived_nypd-shooting-incident-data-historic?from_hint=eyJxIjoiTllQRCBTaG9vdGluZyBJbmNpZGVudCBEYXRhIiwic29ydCI6InJlbGV2YW5jZSJ9).
+
+```{r Read data}
+url_in <- "https://data.cityofnewyork.us/api/v3/views/833y-fsy8/export.csv?accessType=DOWNLOAD"
+url_in
+```
+
+Then I assign the data to a variable.
+
+```{r Assign data}
+NYPD_shootings <- read_csv(url_in)
+```
+
+## Scale down data
+
+Here I select columns that I want to analyze.
+
+```{r select specific data}
+NYPD_shootings <- NYPD_shootings %>%
+     select(OCCUR_DATE, BORO, OCCUR_TIME, PERP_AGE_GROUP,PERP_SEX,PERP_RACE, VIC_AGE_GROUP, VIC_SEX, VIC_RACE)
+```
+
+### Rename columns
+
+```{r Rename columns}
+NYPD_shootings <- NYPD_shootings %>%
+     rename(Date = OCCUR_DATE, Boro = BORO, Time = OCCUR_TIME) %>%
+  mutate(Date = mdy(Date))
+  
+```
+
+### Further clean
+
+Here I further clean my columns by mutating across each column except Date and Time, to remove any additional spaces.
+
+```{r remove any blank spces in data names}
+NYPD_shootings <- NYPD_shootings %>%
+mutate(
+  across(
+    c(Boro, PERP_AGE_GROUP,PERP_SEX,PERP_RACE, VIC_AGE_GROUP, VIC_SEX, VIC_RACE),
+    ~str_trim(as.character(.x)) 
+  )
+)
+```
+
+The step above was taken in order to save different unknown variables as NA in my data set. 
+
+```{r mutate across columns, save NA variables and save charcters as factors}
+NYPD_shootings <- NYPD_shootings %>%
+  mutate(across(c(Boro, PERP_AGE_GROUP,PERP_SEX,PERP_RACE, VIC_AGE_GROUP, VIC_SEX, VIC_RACE),
+        ~case_match(.x,
+                    c("UNKNOWN","(UNKNOWN)", "(null)", "U", "1022", "940", "1020","1028","224","2021","940")
+                    ~NA_character_,
+                    .default = .x) %>% as.factor()
+  )
+)
+```
+
+
+\newpage
+
+# Summary
+
+```{r mutate time to character}
+NYPD_shootings <- NYPD_shootings %>%
+  mutate(Time = as.character(Time))
+
+summary(NYPD_shootings)
+```
+## NA data
+As seen in the summary above I have many different slots, most notably among the descriptions of perpetrators. I plan to leave these data points as NA rather than fill in any of the cells with guesses as that would introduce my own bias. Rather, when working with columns these values will be excluded from the analysis. The con of this method is that it will shrink the sample size.
+
+Before moving forward I can turn Time back into a time variable.
+```{r time back. too time variable}
+NYPD_shootings <- NYPD_shootings %>%
+  mutate(Time = as_hms(Time))
+```
+
+\newpage
+
+# Visualizations and Analysis
+
+## Arranged by age
+
+```{r by perp type}
+NYPD_shootings <- NYPD_shootings %>%
+  arrange(PERP_AGE_GROUP)
+```
+
+### Perpetrator and Vic <18
+
+Here I create specific data sets for each age group.
+
+```{r filter by <18}
+NYPD_perpU18 <- NYPD_shootings %>%
+  filter(PERP_AGE_GROUP == "<18")
+
+NYPD_vicU18 <- NYPD_shootings %>%
+  filter(VIC_AGE_GROUP == "<18")
+
+```
+
+### Perpetrator and Vic 18-24
+```{r filter by 18-24}
+NYPD_perp1824 <- NYPD_shootings %>%
+  filter(PERP_AGE_GROUP == "18-24")
+
+NYPD_vic1824 <- NYPD_shootings %>%
+  filter(VIC_AGE_GROUP == "18-24")
+```
+
+### Perpetrator and Vic 25-44
+```{r filter by 25-44}
+NYPD_perp2544 <- NYPD_shootings %>%
+  filter(PERP_AGE_GROUP == "25-44")
+
+NYPD_vic2544 <- NYPD_shootings %>%
+  filter(VIC_AGE_GROUP == "25-44")
+```
+
+### Perpetrator and Vic 45-64
+```{r filter by 45-64}
+NYPD_perp4564 <- NYPD_shootings %>%
+  filter(PERP_AGE_GROUP == "45-64")
+
+NYPD_vic4564 <- NYPD_shootings %>%
+  filter(VIC_AGE_GROUP == "45-64")
+```
+
+### Perpetrator and Vic 65+
+```{r filter by 65+}
+NYPD_perp65p <- NYPD_shootings %>%
+  filter(PERP_AGE_GROUP == "65+")
+
+NYPD_vic65p <- NYPD_shootings %>%
+  filter(VIC_AGE_GROUP == "65+")
+```
+
+### Perpetrator and Vic NA
+```{r filter by NA}
+NYPD_perpNA <- NYPD_shootings %>%
+  filter(is.na(PERP_AGE_GROUP))
+
+NYPD_vicNA <- NYPD_shootings %>%
+  filter(is.na(VIC_AGE_GROUP))
+```
+
+
+# Total Perpetrators Over Time
+
+Here I plot the recorded shootings from the beginning of 2006 to the end of 2024. I added a trend line to the graph to help visualize the pattern.
+
+```{r Plot perpetrators over the years}
+#Total
+NYPD_shootings %>% 
+  count(Date, name = "Total_count") %>%
+  ggplot(aes(x = Date, y= Total_count)) + geom_point(alpha=.2,col= "darkblue") + geom_smooth(col="cornflowerblue") + labs(title = "Total Shootings", x = "Date", y= "Number of shootings")
+```
+Next, I looked at 2 specific age groups 18-24 and 25-46 as they were my largest data sets.
+
+```{r Plot 18-24 perpetrators over the years}
+#18-24 perp
+NYPD_perp1824 %>% 
+  count(Date) %>%
+  ggplot(aes(x = Date, y=n)) + geom_point(, alpha=.2,col= "darkred") + 
+                     geom_smooth()+ labs(title = "Shootings by 18-24", x = "Date", y= "Number of shootings")
+```
+
+
+```{r 25-44 perpetrators}
+#25-44 perp
+NYPD_perp2544 %>% 
+  count(Date) %>%
+  ggplot(aes(x= Date, y=n)) + geom_point(alpha=.2,col= "darkred") +geom_smooth(col="blue")+ labs(title = "Shootings by 25-44", x = "Date", y= "Number of shootings")
+```
+### Comparing 18-24 with total shootings
+
+In order to more easily compare the plots I over laid them here. The first compares 18-24 perpetrators to the total shootings,  the second 25-44.
+```{r Over lay shooting plots}
+Total_NYPD_shootings <- NYPD_shootings %>% 
+  count(Date, name = "Total")
+NYPD_shootings_1824 <- NYPD_perp1824 %>% 
+  count(Date, name = "Perp1824")
+
+Total_and_Perp1824 <- inner_join(Total_NYPD_shootings, NYPD_shootings_1824, by = "Date")
+
+Total_and_Perp1824 %>%
+  ggplot(aes(x = Date)) + 
+    geom_point(aes(y = Perp1824), alpha=.2,col= "yellow") + 
+    geom_point(aes(y = Total), alpha=.2,col= "darkblue") + 
+  
+      geom_smooth(aes(y = Perp1824), col="red") + 
+      geom_smooth(aes(y = Total), col="cornflowerblue") + labs(title = "Shootings Overlaid (18-24)", x = "Date", y= "Number of shootings")
+
+```
+
+
+```{r total v 25-44}
+Total_NYPD_shootings <- NYPD_shootings %>% 
+  count(Date, name = "Total")
+NYPD_shootings_2544 <- NYPD_perp2544 %>% 
+  count(Date, name = "Perp2544")
+
+Total_and_Perp2544 <- inner_join(Total_NYPD_shootings, NYPD_shootings_2544, by = "Date")
+
+Total_and_Perp2544 %>%
+  ggplot(aes(x = Date)) + 
+    geom_point(aes(y = Perp2544), alpha=.2,col= "yellow") + 
+    geom_point(aes(y = Total), alpha=.2,col= "darkblue") +
+  geom_smooth(aes(y = Perp2544), col = "red") +
+  geom_smooth(aes(y = Total), col ="cornflowerblue")+labs(title = "Shootings Overlaid (25-44)", x = "Date", y= "Number of shootings")
+```
+### Questions
+
+As we can see in the plots above the 18-24 age range does not follow the overall trend of a spike of shootings around 2020. So, I will also look at the age range from 45-64, even though it is a smaller data set.
+
+```{r total v 45-64}
+Total_NYPD_shootings <- NYPD_shootings %>% 
+  count(Date, name = "Total")
+NYPD_shootings_4564 <- NYPD_perp4564 %>% 
+  count(Date, name = "Perp4564")
+
+Total_and_Perp4564 <- inner_join(Total_NYPD_shootings, NYPD_shootings_4564, by = "Date")
+
+Total_and_Perp4564 %>%
+  ggplot(aes(x = Date)) + 
+    geom_point(aes(y = Perp4564), alpha=.2,col= "green") + 
+    geom_point(aes(y = Total), alpha=.2,col= "darkblue") +
+  geom_smooth(aes(y = Perp4564), col = "red") +
+  geom_smooth(aes(y = Total), col ="cornflowerblue")
+```
+
+This graph also does not follow the general trend that we see in total shootings, so what does?
+
+I will look at my largest data set of all, that in which we do not know the perpetrators age.
+
+```{r total v NA chart}
+Total_NYPD_shootings <- NYPD_shootings %>% 
+  count(Date, name = "Total")
+NYPD_shootings_NA <- NYPD_perpNA %>% 
+  count(Date, name = "PerpNA")
+
+Total_and_PerpNA <- inner_join(Total_NYPD_shootings, NYPD_shootings_NA, by = "Date")
+
+Total_and_PerpNA %>%
+  ggplot(aes(x = Date)) + 
+    geom_point(aes(y = PerpNA), alpha=.2,col= "yellow") + 
+    geom_point(aes(y = Total), alpha=.2,col= "darkblue") +
+  geom_smooth(aes(y = PerpNA), col = "red") +
+  geom_smooth(aes(y = Total), col ="cornflowerblue") + labs(title = "Shootings Overlaid (NA)", x = "Date", y= "Number of shootings")
+```
+
+This being the largest subset of data, it drives the spike that we see in total shootings that NYPD responds to.
+
+## Models of Shootings by Age
+
+Finally, I created 4 models to predict the total cumulative shootings over time for the total shootings, shootings where the perpetrator is 18-24, 25-44 and shootings where their age is unknown.
+
+```{r combine to create total shootings chart}
+Total_shootings_age <- left_join(Total_and_PerpNA, Total_and_Perp1824, by= "Date") %>%
+  left_join(Total_and_Perp2544)
+
+Total_shootings_age <-  Total_shootings_age %>%
+  select( -c(Total.y, Total)) %>%
+  mutate(Total = Total.x) %>%
+  select( -c(Total.x))
+
+Total_shootings_age
+
+```
+
+### Daily shootings
+
+Here we will look at models of the total shootings, age groups 18-24, 25-44 and the unidentified age group.
+
+```{r total daily shootings trend}
+mod_1 <- lm(Total ~ Date, Total_shootings_age)
+PT <- Total_shootings_age %>%
+  mutate(TotPred= predict(mod_1))
+
+PT %>%
+  ggplot(aes(x = Date)) +
+  geom_smooth(aes(y = Total), col="purple") + geom_smooth(aes(y = TotPred), col="pink") + labs( x= "Date", y= "Number of Shootings", title = "Total Shootings")
+```
+As we can see there was a lot of variance, but the shootings are generally trending down.
+
+```{r 18-24 daily shootings trend}
+
+Total_shootings_age_xna <- Total_shootings_age %>%
+  mutate(Total=coalesce(Total,0),
+       Perp1824=coalesce(Perp1824,0),
+       Perp2544=coalesce(Perp2544,0),
+       PerpNA=coalesce(PerpNA,0))
+mod_2 <- lm(Perp1824 ~ Date, Total_shootings_age_xna)
+PT <- Total_shootings_age_xna %>%
+  mutate(Pred_1824 = predict(mod_2))
+
+PT %>%
+  ggplot(aes(x = Date)) +
+  geom_smooth(aes(y = Perp1824), col="purple") + geom_smooth(aes(y = Pred_1824), col="pink") + labs( x= "Date", y= "Number of Shootings", title = "Perpetrators 18-24")
+```
+There is less variance in the downward trend for the 18-24 age group.
+
+```{r 25-44 daily shootings trend}
+mod_3 <- lm(Perp2544 ~ Date, Total_shootings_age_xna)
+PT <- Total_shootings_age_xna %>%
+  mutate(Pred_2544 = predict(mod_3))
+
+PT %>%
+  ggplot(aes(x = Date)) +
+  geom_smooth(aes(y = Perp2544), col="purple") + geom_smooth(aes(y = Pred_2544), col="pink") + labs( x= "Date", y= "Number of Shootings", title = "Perps 25-44")
+```
+
+The shootings in the 25-44 age group are trending upwards, with some variance.
+
+```{r NA daily shootings trend}
+mod_4 <- lm(PerpNA ~ Date, Total_shootings_age_xna)
+PT <- Total_shootings_age_xna %>%
+  mutate(Pred_NA = predict(mod_4))
+
+PT %>%
+  ggplot(aes(x = Date)) +
+  geom_smooth(aes(y = PerpNA), col="purple") + geom_smooth(aes(y = Pred_NA), col="pink") + labs( x= "Date", y= "Number of Shootings", title = "Perps Age Unknown")
+```
+
+### Model Summaries
+
+```{r}
+summary(mod_1)
+summary(mod_2)
+summary(mod_3)
+summary(mod_4)
+```
+
+
+The unknown age group shootings are trending down with large variance from the prediction.
+
+### Daily Shootings
+
+Most of the daily shooting frequency is trending downward over all. The only age group that is trending upwards consistently is the 25-44 group.
+
+### Cumulative Totals
+
+```{r Create cummulative total table }
+Cum_Total <- Total_shootings_age %>% 
+  arrange(Date) %>%
+mutate(Total=coalesce(Total,0),
+       Perp1824=coalesce(Perp1824,0),
+       Perp2544=coalesce(Perp2544,0),
+       PerpNA=coalesce(PerpNA,0))%>%
+  mutate(Cumulative_Total = cumsum(Total), 
+         Cumulative_Perp1824= cumsum(Perp1824),
+          Cumulative_Perp2544= cumsum(Perp2544),
+          Cumulative_PerpNA= cumsum(PerpNA)) 
+```
+
+```{r create linear models and give summaries}
+mod <- lm(Cumulative_Total ~ Date, Cum_Total)
+mod2 <- lm(Cumulative_Perp1824 ~ Date, Cum_Total)
+mod3 <- lm(Cumulative_Perp2544 ~ Date, Cum_Total)
+mod4 <- lm(Cumulative_PerpNA ~ Date, Cum_Total)
+
+Pred_Total <- Cum_Total %>%
+  mutate(Predict_Total = predict(mod), Predict_1824 = predict(mod2), Predict_2544 = predict(mod3), Predict_NA = predict(mod4))
+
+Pred_Total
+
+```
+
+```{r create prediction model visual}
+Pred_Total %>% 
+  ggplot(aes(x= Date)) + 
+      geom_point(aes(y = Cumulative_Total, col = "Actual Total"), size = .25) + 
+      geom_point(aes(y = Predict_Total, col = "Predict Total"), size = .25)+ 
+          geom_point(aes(y = Cumulative_Perp1824, col = "Actual 18-24"), size = .25) + 
+          geom_point(aes(y = Predict_1824, col = "Predict 18-24"), size = .25) +
+                geom_point(aes(y = Cumulative_Perp2544, col = "Actual 25-44"), size = .25) + 
+                geom_point(aes(y = Predict_2544, col = "Predict 25-44"), size = .25)+ 
+                        geom_point(aes(y = Cumulative_PerpNA, col = "Actual NA"), size = .25) + 
+                        geom_point(aes(y = Predict_NA, col = "Predict NA"), size = .25) +
+  labs(x="Date", y= "Cumulative Total Shootings")
+                        
+```
+
+###Model Summaries
+
+```{r}
+summary(mod)
+summary(mod2)
+summary(mod3)
+summary(mod4)
+```
+
+
+Here we can see that the cumulative shootings reported by the NYPD follow a linear model in each age group. In fact, the spike that we see in 2020 brings the model back to the initial prediction line.
+
+## Conclusions and Bias
+
+The shootings reported by the NYPD have a wealth of data to research and analyze. Doing so from the attributes of perpetrators becomes a bit harder when there is so much data missing. However, we can still look at overall trends. Such as the gradual decline of shootings from about 2012 to 2020 when shootings rose significantly for a couple of years and then began declining once more. This brings the question, what caused the initial dip in shootings before this spike? Did the COVID-19 pandemic have anything to do with it? Each age group follows the same linear trend of cumulative shootings. However, we did not see the drastic spike that we saw in the overall data when referencing the specific age groups. This trend was reflected clearly in our unknown age group due to it being our largest set of data with the perpetrator age groups. Most age groups and the unknown age group are seeing an overall reduction in shootings. The only age group that continues to have a rise in shootings is the 25-44 age group. Why are we seeing a rise in this age group alone? 
+
+As there is bias in any research, mine is no different. I initially began looking at the age groups that I can most closely relate to. However, I opened up my research to the largest age groups, including the unknown. A critical limitation of this data set is descriptive bias, most likely from witness descriptions which are often informed by stereotypes. Missing data from PERP_AGE_GROUP strongly suggests that the suspect was never taken into custody. However, we see this missing data in 10% of cases that identify the perpetrator as black, compared to the 3% of cases that identify the perpetrator as white. The "PerpNA" column does not represent missing data, but data on individuals who were never apprehended. Thus, the estimates of shootings perpetrated by each age group is an underestimate as we do not know the ages of approximately half of the data set.
+
+```{r}
+sessionInfo()
+```

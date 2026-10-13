@@ -1,0 +1,443 @@
+---
+title: "Covid-19"
+author: "A. Deeley"
+date: "2026-09-22"
+output:
+  github_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+```
+
+# Introduction
+This Report focuses on Covid-19 data that can be found on Github. This data was collected from the beginning of the pandemic in 2020 and ends in March 2023. This data contains global and data from the US.I will focus on the rise of cases in the United States. For the purpose of this projectI will focus on the 50 states and Washington DC.
+
+I aim to answer the question:
+
+Did cumulative COVID-19 deaths per capita, and the relationship between cases and deaths, differ between states that voted Republican vs. Democratic in 2020?
+
+# Import Data
+
+## Create URLs
+
+Here I create a master URL that each of the four URLs I use begin with. Then, I make a vector that includes the four unique endings. Finally, I string the vector elements together with the beginning of the URL, to create a vector of length four, with four unique URLs. This allows to more succinctly refer to the data sets later on. 
+
+```{r Data Sets}
+library(tidyverse)
+url_in <- "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/"
+file_names <- c("time_series_covid19_confirmed_global.csv",
+"time_series_covid19_deaths_global.csv",
+"time_series_covid19_confirmed_US.csv",
+"time_series_covid19_deaths_US.csv")
+urls <- str_c(url_in,file_names)
+urls
+```
+
+## Read in data
+
+Here I read in the data sets and assign them each to a unique name. 
+
+```{r import data, echo=FALSE}
+global_cases <- read_csv(urls[1])
+global_deaths <- read_csv(urls[2])
+US_cases <- read_csv(urls[3])
+US_deaths <- read_csv(urls[4])
+```
+
+## Tidy Global Data
+
+Here I shift the table from a wide table to a longer table with date and cases columns. I choose to select all columns, except for Lat and Long.
+
+```{r}
+global_cases <- global_cases %>%
+pivot_longer(cols= -c(`Province/State`, `Country/Region`, Lat, Long),
+names_to = "Date",
+values_to = "Cases") %>%
+  select(-c(Lat,Long))
+
+global_deaths <- global_deaths %>%
+  pivot_longer(cols= -c(`Province/State`, `Country/Region`, Lat, Long),
+names_to = "Date",
+values_to = "Deaths") %>%
+  select(-c(Lat,Long))
+```
+
+### Create global data set
+
+Here I will join together global_cases and global_deaths in order to create a global data set.
+
+```{r make global}
+global <- global_cases %>%
+full_join(global_deaths) %>%
+  rename(Province_State = `Province/State`,
+         Country_Region = `Country/Region`) %>%
+  mutate(Date=mdy(Date))
+```
+
+### Filter global data
+
+There are lots of places where the cases are zero, so I are going to filter out and keep only where the cases are positive.
+
+```{r filter out 0 cases}
+global <- global %>% filter(Cases > 0)
+```
+
+Looking at the data summary of global now, the minumum number of cases is 1.
+
+Now I check the maximum.
+```{r check max}
+global %>% filter(Cases > 280000000)
+```
+
+# Tidy US Data
+
+In this section I use a similar process as I did for global cases and deaths data. The main difference is that there are more columns that I will not select to show.  
+
+## US Cases
+
+```{r create date columns}
+US_cases <- US_cases %>%
+    pivot_longer(cols= -(UID:Combined_Key),
+                 names_to = "Date",
+                 values_to = "Cases") %>%
+    select(Admin2:Cases) %>%
+    mutate(Date = mdy(Date)) %>%
+    select(-c(Lat,Long_))
+```
+
+## US Deaths
+
+```{r}
+US_deaths <- US_deaths %>%
+  pivot_longer(cols= -(UID:Population), 
+                names_to = "Date", 
+                values_to = "Deaths") %>%
+  select(Admin2:Deaths) %>%
+  mutate(Date = mdy(Date)) %>%
+  select(-c(Lat,Long_))
+```
+
+### Create US Data Set
+
+Here I will join US cases and US deaths to create a complete US category.
+```{r Join US Cases and deaths}
+US <- US_cases %>%
+  full_join(US_deaths)
+```
+
+
+## US by State
+
+Her I are going to further group our US data by state and create a row for deaths per thousand given the population
+```{r visualize by US state}
+US_by_state <- US %>%
+  group_by(Province_State,Country_Region,Date) %>%
+  summarize(Cases = sum(Cases), Deaths = sum(Deaths),
+            Population = sum(Population)) %>%
+  mutate(deaths_per_thou = Deaths *1000 / Population) %>%
+  select(Province_State, Country_Region, Date, Cases, Deaths, deaths_per_thou, Population) %>%
+  ungroup()
+```
+
+# Visualizations
+
+## US Totals
+
+Here I summarize our data to visualize the total cases and deaths for the United States over time. 
+
+```{r visualize by US totals}
+US_totals <- US_by_state %>%
+  group_by(Country_Region,Date) %>%
+  summarize(Cases = sum(Cases), Deaths = sum(Deaths),
+            Population = sum(Population)) %>%
+  mutate(deaths_per_thou = Deaths *1000 / Population, cases_per_thou = Cases*1000/ Population) %>%
+  select(Country_Region, Date, Cases, Deaths, deaths_per_thou, cases_per_thou, Population) %>%
+  ungroup()
+
+US_totals %>%
+  filter(Cases>0) %>%
+  ggplot(aes(x=Date,y=Cases)) + 
+  geom_line(aes(color="Cases")) +
+  geom_point(aes(color= "Cases")) +
+  geom_line(aes(y=Deaths, color="Deaths"))+
+  geom_point(aes(y=Deaths, color= "Deaths")) +
+  scale_y_log10() +
+  theme(legend.position = "bottom",
+        axis.text.x = element_text(angle = 90))+
+  labs(title = "Covid-19 in US", y = NULL)
+
+```
+
+## US Red State totals
+
+In this section I filter our data by states that voted red in the 2020 election, summarize the cases and deaths, create columns for deaths and cases per thousand and create a visual for this case.
+
+```{r visualize by red states}
+red_states <- c("Montana", "Idaho", "Alabama", "Nebraska", "Texas", "Arkansas",
+                "Wyoming", "Utah", "Kansas", "Iowa", "Louisiana", "Mississippi",
+                "Alaska", "Florida", "South Carolina", "North Dakota",
+                "South Dakota", "Oklahoma", "Missouri", "Tennessee", "Kentucky",
+                "Indiana", "Ohio", "West Virginia", "North Carolina")
+
+US_red_states <- US_by_state %>%
+  filter(Province_State %in% red_states)
+
+US_red_totals <- US_red_states %>%
+  group_by(Date) %>%
+  summarize(Cases = sum(Cases), Deaths = sum(Deaths),
+            Population = sum(Population)) %>%
+  mutate(deaths_per_thou = Deaths * 1000 / Population, cases_per_thou = Cases * 1000 / Population) %>%
+  ungroup()
+
+US_red_totals %>%
+  filter(Cases > 0) %>%
+  ggplot(aes(x = Date, y = Cases)) +
+    geom_line(aes(color = "Cases")) +
+    geom_point(aes(color = "Cases")) +
+      geom_line(aes(y = Deaths, color = "Deaths")) +
+    geom_point(aes(y = Deaths, color = "Deaths")) +
+  scale_y_log10() +
+  theme(legend.position = "bottom",
+        axis.text.x = element_text(angle = 90)) +
+  labs(title = "Covid-19 in Red States", y = NULL)
+```
+
+## US Blue State totals
+
+In this section I repeat the process above for blue states.
+
+```{r visualize by blue states}
+blue_states <- c("Washington", "Minnesota", "Maryland","Massachusetts", "Oregon", "Wisconsin", "Delaware", "Rhode Island", "California", "Illinois", "New Jersey", "Maine", "Nevada", "Michigan", "New York", "Hawaii", "Arizona", "Pennsylvania", "Connecticut", "Colorado", "Virginia", "Vermont", "New Mexico", "Georgia", "New Hampshire", "District of Columbia")
+
+US_blue_states <- US_by_state %>%
+  filter(Province_State %in% blue_states)
+
+US_blue_totals <- US_blue_states %>%
+  group_by(Date) %>%
+  summarize(Cases = sum(Cases), Deaths = sum(Deaths),
+            Population = sum(Population)) %>%
+  mutate(deaths_per_thou = Deaths * 1000 / Population, cases_per_thou = Cases * 1000 / Population) %>%
+  ungroup()
+
+US_blue_totals %>%
+  filter(Cases > 0) %>%
+  ggplot(aes(x = Date, y = Cases)) +
+    geom_line(aes(color = "Cases")) +
+    geom_point(aes(color = "Cases")) +
+      geom_line(aes(y = Deaths, color = "Deaths")) +
+      geom_point(aes(y = Deaths, color = "Deaths")) +
+  scale_y_log10() +
+  theme(legend.position = "bottom",
+        axis.text.x = element_text(angle = 90)) +
+  labs(title = "Covid-19 in Blue States", y = NULL)
+```
+
+Looking at the three visualizations above the trends of all three groups, US totals, red states and blue state all look extremely similar. In order to see if the is accurate I are going to look at the data in a few new ways as well.
+
+### Red and Blue State Visual 
+
+Here I create a graph in order to more closely compare the deaths per thousand in Red and Blue states.
+
+```{r visualize red and blue states deaths per thousand}
+combined <- bind_rows(
+  US_red_totals  %>% mutate(group = "Red"),
+  US_blue_totals %>% mutate(group = "Blue")
+)
+
+combined %>%
+  ggplot(aes(x = Date, y = deaths_per_thou, color = group)) +
+  geom_line() +
+  scale_color_manual(values = c(Red = "firebrick", Blue = "steelblue")) +
+  theme(legend.position = "bottom") +
+  labs(title = "Covid-19 deaths per thousand: Red vs. Blue states", y = "Deaths per thousand")
+```
+
+Based on this visual it seems that blue states had more deaths per thousand towards the beginning of the pandemic than red states did. Red states seemed to have a sharp increase in deaths per thousand mid 2021. However, both follow a general gradual trend upwards.
+
+## New Cases and New Deaths
+
+Now, instead of looking at total cases and deaths because they will always be increasing as it is an accumulation over time, I want to look at the number of new cases and new deaths each day.
+
+### Tidy again
+
+Here I create new columns for new cases and new deaths by arranging by date and subtracting the cases or deaths of the previously from each new day.
+
+```{r red and blue state totals}
+US_by_state <- US_by_state %>%
+  arrange(Province_State, Date) %>%
+  group_by(Province_State) %>%
+  mutate(new_cases  = Cases  - lag(Cases),
+         new_deaths = Deaths - lag(Deaths)) %>%
+  ungroup()
+
+US_totals <- US_totals %>%
+  arrange(Date) %>%
+  mutate(new_cases  = Cases  - lag(Cases),
+         new_deaths = Deaths - lag(Deaths))
+
+US_red_states  <- US_by_state %>% filter(Province_State %in% red_states)
+US_blue_states <- US_by_state %>% filter(Province_State %in% blue_states)
+
+summarize_group <- function(df) {
+  df %>%
+    group_by(Date) %>%
+    summarize(Cases      = sum(Cases),
+              Deaths     = sum(Deaths),
+              new_cases  = sum(new_cases,  na.rm = TRUE),
+              new_deaths = sum(new_deaths, na.rm = TRUE),
+              Population = sum(Population)) %>%
+    mutate(deaths_per_thou = Deaths * 1000 / Population,
+           cases_per_thou  = Cases  * 1000 / Population)
+}
+
+US_red_totals  <- summarize_group(US_red_states)
+US_blue_totals <- summarize_group(US_blue_states)
+```
+
+## Plot New Cases and New Deaths
+
+
+### US Total
+
+Here I plot the new cases and new deaths for all of the US.
+
+```{r plot US total new cases and deaths}
+US_totals %>%
+  filter(new_cases > 0, new_deaths > 0) %>%
+  ggplot(aes(x=Date,y=new_cases)) + 
+    geom_line(aes(color="new_cases")) +
+    geom_point(aes(color= "new_cases")) +
+      geom_line(aes(y=new_deaths, color="new_deaths"))+
+      geom_point(aes(y=new_deaths, color= "new_deaths")) +
+  scale_y_log10() +
+  theme(legend.position = "bottom",
+        axis.text.x = element_text(angle = 90))+
+  labs(title = "Covid-19 in US", y = NULL)
+
+```
+
+### Red States
+
+Here I plot the red states new cases and new deaths
+
+```{r plot red and blue states new cases and deaths}
+
+US_red_totals %>%
+  filter(new_cases > 0, new_deaths > 0) %>%
+  ggplot(aes(x=Date,y=new_cases)) + 
+    geom_line(aes(color="new_cases")) +
+    geom_point(aes(color= "new_cases")) +
+      geom_line(aes(y=new_deaths, color="new_deaths"))+
+      geom_point(aes(y=new_deaths, color= "new_deaths")) +
+  scale_y_log10() +
+  theme(legend.position = "bottom",
+        axis.text.x = element_text(angle = 90))+
+  labs(title = "Covid-19 in Red States", y = NULL)
+
+
+US_blue_totals %>%
+  filter(new_cases > 0, new_deaths > 0) %>%
+  ggplot(aes(x=Date,y=new_cases)) + 
+    geom_line(aes(color="new_cases")) +
+    geom_point(aes(color= "new_cases")) +
+      geom_line(aes(y=new_deaths, color="new_deaths"))+
+      geom_point(aes(y=new_deaths, color= "new_deaths")) +
+  scale_y_log10() +
+  theme(legend.position = "bottom",
+        axis.text.x = element_text(angle = 90))+
+  labs(title = "Covid-19 in Blue States", y = NULL)
+```
+
+Daily new cases and deaths followed the same waves in red states, blue states, and the US overall: an early spring 2020 surge, a large winter 2020-21 peak, a rise in late 2021, and a record case peak around January 2022. After that, deaths per case dropped substantially in all three groups, and daily counts became erratic, likely because of changes in reporting. At this scale the red and blue graphs are difficult to distinguish, so comparing the groups needs population-adjusted, smoothed data. 
+
+
+```{r}
+state_final <- US_by_state %>%
+  filter(Date == max(Date), Population > 0) %>%
+  mutate(group = case_when(Province_State %in% red_states  ~ "Red",
+                           Province_State %in% blue_states ~ "Blue",
+                           TRUE ~ "Other"),
+         cases_per_thou  = Cases  * 1000 / Population,
+         deaths_per_thou = Deaths * 1000 / Population) %>%
+  filter(group != "Other")
+
+state_final %>%
+  group_by(group) %>%
+  summarize(across(c(cases_per_thou, deaths_per_thou), list(mean = mean, sd = sd)))
+
+t.test(deaths_per_thou ~ group, data = state_final)
+summary(lm(deaths_per_thou ~ cases_per_thou * group, data = state_final))
+```
+
+Here I used a Welch two-sample t-test to compare cumulative deaths per thousand in red and blue states as of March 2023. Red states averaged 3.56 deaths per thousand and blue states 3.11, a difference of about 0.45 per thousand (red states about 15% higher). This difference was not statistically significant at the 5% level (t = -1.92, df = 46.3, p = 0.061). So, the evidence for a gap is suggestive but not conclusive.
+
+## Model of Deaths per thousand as a function of cases per thousand
+
+Here I look at the states final deaths per thousand as a function of there final cases per thousand. This will help us conclude if case to death slope differs by group.
+
+### Plot model
+
+Here I plot the model for state finals. The first plot shows a trend line for all of the states. The following plot shows trend lines for blue and red states. Since outliers on this small of a data set can impact the trend slope line drastically, I removed Utah and Alaska in our final plot and paced the trend lines again.
+
+```{r}
+mod1 <- lm(deaths_per_thou ~ cases_per_thou, data = state_final)
+summary(mod1)
+
+state_final %>%
+  ggplot(aes(x = cases_per_thou, y = deaths_per_thou)) +
+  geom_point(aes(color = group)) +
+  geom_smooth(method = "lm", se = FALSE, color = "black") +
+  scale_color_manual(values = c(Red = "firebrick", Blue = "steelblue")) +
+  theme(legend.position = "bottom") +
+  labs(title = "Red and Blue States: Deaths vs. Cases per Thousand",
+       x = "Cases per Thousand",
+       y = "Deaths per Thousand",
+       color = NULL)
+
+state_final %>%
+  ggplot(aes(x = cases_per_thou, y = deaths_per_thou, color = group)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE) +
+  scale_color_manual(values = c(Red = "firebrick", Blue = "steelblue")) +
+  theme(legend.position = "bottom") +
+  labs(title = "Deaths vs. Cases per Thousand by State Group",
+       x = "Cases per Thousand",
+       y = "Deaths per Thousand",
+       color = NULL)
+
+state_final %>%
+  filter(!Province_State %in% c("Utah", "Alaska")) %>%
+  ggplot(aes(x = cases_per_thou, y = deaths_per_thou, color = group)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE) +
+  scale_color_manual(values = c(Red = "firebrick", Blue = "steelblue")) +
+  theme(legend.position = "bottom") +
+  labs(title = "Deaths vs. Cases per Thousand by State Group",
+       x = "Cases per Thousand",
+       y = "Deaths per Thousand",
+       color = NULL)
+```
+
+
+# Conclusion
+
+Red states had somewhat higher deaths per capita than blue states by March 2023. However, this difference was not statistically significant at the 5% level. Blue states had higher death rates per capita at the beginning of the pandemic, but red-state deaths rose and overtook blue states in late summer 2021. Red states stayed above blue states in deaths per capita for the rest of the time frame.
+
+The relationship between cases and deaths initially appeared to differ by group: the fitted slope was about 0.011 for blue states and close to zero for red states. However, that difference was not statistically significant (interaction p = 0.0026), and it depended heavily on two states, Utah and Alaska. After removing these two states, both groups showed positive slopes, and the red-state line sat slightly above the blue-state line at comparable case levels. Thus, the data suggest a possible small difference in death rates between the groups, but not a reliable difference in how cases translate into deaths.
+
+Given that there are only fifty states and 25 and 26 data points per group, this model struggles to etect modest differences.
+
+
+## Bias!
+
+There are many biases to consider in this research, as there always are when asking a politically loaded question. I am left-leaning and was curious whether blue states fared better in mitigating cases or deaths during the pandemic. I tried to counter this bias by making many observations about both red and blue states and by using specific values, rather than general impressions of the visualizations, to draw conclusions.
+
+Beyond my own biases, there are other factors to consider. These results are state-level associations, and many factors besides political leaning contribute to cases and deaths. Age, population density, vaccination rates, health-care access, and the timing of waves all differ between the groups and affect this data. Differences in testing and death reporting also limit comparisons of recorded cases. Toward the end of the data set, many states switched from daily to weekly reporting, and at-home tests became more accessible, so recorded cases are likely undercounted in that period.
+
+
+```{r}
+sessionInfo()
+```
+
